@@ -1,0 +1,11 @@
+# 密钥与业务数据 —— 严禁提交
+jdy-config.json
+jdy-token-cache.json
+jdy-sync-state.json
+jdy-data/
+
+# 构建产物（含真实经营数据与截图）
+designs/
+
+# 依赖（本项目零第三方依赖，此行仅为防御）
+node_modules/

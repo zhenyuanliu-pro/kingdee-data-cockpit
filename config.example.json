@@ -1,0 +1,31 @@
+{
+  "comment": "复制为 jdy-config.json 并填入真实凭据（该文件已被 .gitignore 排除，切勿提交）",
+  "dashboard": {
+    "comment": "驾驶舱管理基准（按需调整）：年度净销售目标（元）、回款/销售比目标基准、页面标题",
+    "annualTargetNetSales": 67000000,
+    "targetReceiptRatio": 0.7,
+    "title": "XX集团 · 经营数据驾驶舱"
+  },
+  "clientId": "<金蝶开放平台应用 Client ID>",
+  "clientSecret": "<金蝶开放平台应用 Client Secret>",
+  "gateway": "https://api.kingdee.com",
+  "accounts": [
+    {
+      "name": "<公司全称（脱敏版会替换为 主体A/B/C/D）>",
+      "shortName": "company-a",
+      "appKey": "<该账套 AppKey（初次也可留空，脚本会通过 outerInstanceId 自动换取）>",
+      "outerInstanceId": "<账套实例 ID（金蝶授权页 URL 中获取）>"
+    }
+  ],
+  "relatedPartyExclusion": {
+    "comment": "关联方剔除清单：集团内公司之间的购销/应收不计入统计（净额口径）",
+    "excludeFrom": ["customer", "sales", "receivable", "saleAmountWithTax"],
+    "documentRule": "凡单据（销货单/进货单/应收/收款）的交易对象是清单内公司 → 该单据不计入销售与应收统计",
+    "companies": ["<关联公司全称1>", "<关联公司全称2>"],
+    "matchedCustomerIds": {
+      "<账套 outerInstanceId>": [
+        { "id": "<该账套中对应内部客户的客户ID>", "name": "<客户名称>" }
+      ]
+    }
+  }
+}
