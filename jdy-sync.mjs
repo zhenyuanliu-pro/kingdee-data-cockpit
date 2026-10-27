@@ -20,15 +20,27 @@ const state = fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE,
 const tokenCache = fs.existsSync(TOKEN_FILE) ? JSON.parse(fs.readFileSync(TOKEN_FILE, "utf8")) : { entries: {} };
 
 // token 生命周期管理：appSecret 24h 刷新 → 每次运行先取最新授权，再按需换 token
+// 容灾：授权查询失败时，回退用 20h 内缓存过的 appKey/appSecret（实例ID失效/接口抖动不阻断同步）
 async function ensureCtx(acct) {
-  const auth = await getAuthorization(cfg, acct.outerInstanceId);
+  let auth = null;
+  try {
+    auth = await getAuthorization(cfg, acct.outerInstanceId);
+  } catch (e) {
+    const c = tokenCache.auths?.[acct.outerInstanceId];
+    if (c && c.fetchedAt > Date.now() - 20 * 3600_000) {
+      console.log(`  [容灾] 授权查询失败，改用 ${new Date(c.fetchedAt).toLocaleString()} 缓存的 appKey/appSecret`);
+      auth = { appKey: c.appKey, appSecret: c.appSecret, domain: c.domain };
+    } else throw e;
+  }
+  tokenCache.auths ??= {};
+  tokenCache.auths[acct.outerInstanceId] = { ...auth, fetchedAt: Date.now() };
   let e = tokenCache.entries[auth.appKey];
   if (!e || !e.expiresAt || e.expiresAt < Date.now() + 60_000) {
     const token = await getAppToken(cfg, { appKey: auth.appKey, appSecret: auth.appSecret });
     e = { token, expiresAt: Date.now() + 23 * 3600_000 };
     tokenCache.entries[auth.appKey] = e;
-    fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenCache, null, 2), "utf8");
   }
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenCache, null, 2), "utf8");
   return { appToken: e.token, routerAddr: auth.domain };
 }
 
@@ -70,9 +82,17 @@ const now = Date.now();
 let totalCalls = 0;
 const origCallApi = callApi; // 统计调用量（监控限流余量）
 
+const failed = [];
 for (const acct of cfg.accounts) {
   const st = (state.accounts[acct.shortName] ??= {});
-  const ctx = await ensureCtx(acct);
+  let ctx;
+  try {
+    ctx = await ensureCtx(acct);
+  } catch (e) {
+    failed.push(acct.shortName);
+    console.log(`\n[${acct.shortName}] !!! 授权失败，本轮跳过（其余账套继续）: ${e.message.slice(0, 140)}`);
+    continue;
+  }
   console.log(`\n[${acct.shortName}] ${mode === "full" ? "全量" : "增量"}同步...`);
 
   for (const [type, def] of Object.entries(TYPES)) {
@@ -126,6 +146,12 @@ for (const acct of cfg.accounts) {
   console.log(`  openDocs: 当前未结清 ${openIds.size} 单（新取详情 ${detailCalls}，本期结清 ${settled.length}）`);
 }
 
-state.lastRun = { mode, at: now, totalCalls };
+state.lastRun = { mode, at: now, totalCalls, failed };
 fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
-console.log(`\n同步完成（API调用约 ${totalCalls} 次，限流500次/分/账套），状态 → ${STATE_FILE}`);
+if (failed.length) {
+  console.log(`\n同步完成，但以下账套本轮未同步（数据停留在上次成功时点）: ${failed.join("、")}`);
+  console.log(`恢复方法：在金蝶开放平台重新授权该账套应用，用新的第三方实例ID更新 jdy-config.json`);
+  if (failed.length === cfg.accounts.length) process.exit(1);
+} else {
+  console.log(`\n同步完成（API调用约 ${totalCalls} 次，限流500次/分/账套），状态 → ${STATE_FILE}`);
+}
